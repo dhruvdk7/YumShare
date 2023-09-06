@@ -1,0 +1,428 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Resources:
+  #https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket.html
+  #Creating S3 Bucket
+  MyS3Bucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: recipesharingphotos
+  #https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/create-queue-cloudformation.html
+  #Creating a Queue
+  MySQSQueue:
+    Type: "AWS::SQS::Queue"
+    Properties:
+      QueueName: "RecipeTry"
+      VisibilityTimeout: 5
+      MaximumMessageSize: 2048
+  #https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-sns-topic.html
+  #SNS topic creation using Cloud Formation
+  SNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: 'Yum Share'
+      TopicName: RecipeSharing
+  #https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-lambda-function.html
+  #Lambda Functions for every Service
+  RegisterLambdaFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Runtime: "nodejs14.x"
+      Handler: "index.handler"
+      Role: "arn:aws:iam::710043768495:role/LabRole"
+      Code:
+        S3Bucket: "firstlambdatry"
+        S3Key: "lambda.zip"
+      FunctionName: RegisterLambdaFunction
+      Environment:
+        Variables:
+          "SNS_ARN": !Ref SNSTopic
+      Timeout: 60
+  LoginLambdaFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Runtime: "nodejs14.x"
+      Handler: "index.handler"
+      Role: "arn:aws:iam::710043768495:role/LabRole"
+      Code:
+        S3Bucket: "firstlambdatry"
+        S3Key: "login.zip"
+      FunctionName: LoginLambdaFunction
+      Timeout: 60
+
+  AddRecipeLambda:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Runtime: "nodejs14.x"
+      Handler: "index.handler"
+      Role: "arn:aws:iam::710043768495:role/LabRole"
+      Code:
+        S3Bucket: "firstlambdatry"
+        S3Key: "addrecipe.zip"
+      FunctionName: AddRecipeLambda
+      Environment:
+        Variables:
+          "SQS_URL": !GetAtt MySQSQueue.QueueUrl
+      Timeout: 5
+    
+  GetRecipeLambda:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Runtime: "nodejs14.x"
+      Handler: "index.handler"
+      Role: "arn:aws:iam::710043768495:role/LabRole"
+      Code:
+        S3Bucket: "firstlambdatry"
+        S3Key: "getallrecipe.zip"
+      FunctionName: GetRecipeLambda
+      Timeout: 60
+
+  GetSpecificRecipeLambda:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Runtime: "nodejs14.x"
+      Handler: "index.handler"
+      Role: "arn:aws:iam::710043768495:role/LabRole"
+      Code:
+        S3Bucket: "firstlambdatry"
+        S3Key: "getspecificrecipe.zip"
+      FunctionName: GetSpecificRecipeLambda
+      Timeout: 60
+
+  GetUserRecipeLambda:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Runtime: "nodejs14.x"
+      Handler: "index.handler"
+      Role: "arn:aws:iam::710043768495:role/LabRole"
+      Code:
+        S3Bucket: "firstlambdatry"
+        S3Key: "getuserspecific.zip"
+      FunctionName: GetUserRecipeLambda
+      Timeout: 60
+  DeleteRecipeLambda:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Runtime: "nodejs14.x"
+      Handler: "index.handler"
+      Role: "arn:aws:iam::710043768495:role/LabRole"
+      Code:
+        S3Bucket: "firstlambdatry"
+        S3Key: "deleterecipe.zip"
+      FunctionName: DeleteRecipeLambda
+      Timeout: 60
+  SNSPublisherLambda:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Runtime: "nodejs14.x"
+      Handler: "index.handler"
+      Role: "arn:aws:iam::710043768495:role/LabRole"
+      Code:
+        S3Bucket: "firstlambdatry"
+        S3Key: "publish.zip"
+      FunctionName: SNSPublisherLambda
+      Environment:
+        Variables:
+          "SQS_URL": !GetAtt MySQSQueue.QueueUrl
+          "SNS_ARN": !Ref SNSTopic
+      Timeout: 5
+  #https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-lambda-eventsourcemapping.html
+  # Lambda to Queue Source MApping for invoking Lambda from the Queue
+  SNSPublisherLambdaEventSourceMapping:
+    Type: "AWS::Lambda::EventSourceMapping"
+    Properties:
+      BatchSize: 10
+      Enabled: true
+      EventSourceArn: !GetAtt MySQSQueue.Arn
+      FunctionName: !Ref SNSPublisherLambda
+  # Dyanmo Db tables for User
+  UserTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: User
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+  # Dyanmo Db tables for Recipe
+  RecipeTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Recipe
+      AttributeDefinitions:
+        - AttributeName: recipeId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: recipeId
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+#https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-apigateway-httpapi.html
+# Creating a API
+  YumShareAPI:
+    Type: "AWS::ApiGatewayV2::Api"
+    Properties:
+      Name: "YumShareAPI"
+      ProtocolType: "HTTP"
+      CorsConfiguration:
+        AllowMethods:
+          - "POST"
+          - "GET"
+          - "DELETE"
+        AllowOrigins:
+          - "*"
+        AllowHeaders:
+          - "*"
+  #Defines a function permisson form invoking Lambda
+  LambdaExecutionPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Ref RegisterLambdaFunction
+      Action: "lambda:InvokeFunction"
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${YumShareAPI}/*/*"
+  #Maps the API with the Lambda Function
+  #https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-apitgateway-method-integration.html
+  FunctionIntegration:
+    Type: "AWS::ApiGatewayV2::Integration"
+    DependsOn:
+      - RegisterLambdaFunction
+    Properties:
+      ApiId: !Ref YumShareAPI
+      IntegrationType: "AWS_PROXY"
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RegisterLambdaFunction.Arn}/invocations"
+      PayloadFormatVersion: "2.0"
+  # Creating a route for every lambda
+  MyLambdaRoute:
+    Type: "AWS::ApiGatewayV2::Route"
+    DependsOn:
+      - FunctionIntegration
+    Properties:
+      ApiId: !Ref YumShareAPI
+      RouteKey: "POST /register"
+      Target: !Sub "integrations/${FunctionIntegration}"
+  #building a deployment stage
+  APIGatewayStage:
+    Type: "AWS::ApiGatewayV2::Stage"
+    Properties:
+      ApiId: !Ref YumShareAPI
+      StageName: "$default"
+      AutoDeploy: true
+  
+  LambdaExecutionPermissionLogin:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Ref LoginLambdaFunction
+      Action: "lambda:InvokeFunction"
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${YumShareAPI}/*/*"
+
+  LoginFunctionIntegration:
+    Type: "AWS::ApiGatewayV2::Integration"
+    DependsOn:
+      - LoginLambdaFunction
+    Properties:
+      ApiId: !Ref YumShareAPI
+      IntegrationType: "AWS_PROXY"
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LoginLambdaFunction.Arn}/invocations"
+      PayloadFormatVersion: "2.0"
+
+  MyLoginLambdaRoute:
+    Type: "AWS::ApiGatewayV2::Route"
+    DependsOn:
+      - LoginFunctionIntegration
+    Properties:
+      ApiId: !Ref YumShareAPI
+      RouteKey: "POST /login"
+      Target: !Sub "integrations/${LoginFunctionIntegration}"
+
+  LambdaExecutionPermissionAddRecipe:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Ref AddRecipeLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${YumShareAPI}/*/*"
+
+  AddRecipeFunctionIntegration:
+    Type: "AWS::ApiGatewayV2::Integration"
+    DependsOn:
+      - AddRecipeLambda
+    Properties:
+      ApiId: !Ref YumShareAPI
+      IntegrationType: "AWS_PROXY"
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AddRecipeLambda.Arn}/invocations"
+      PayloadFormatVersion: "2.0"
+
+  MyAddRecipeLambdaRoute:
+    Type: "AWS::ApiGatewayV2::Route"
+    DependsOn:
+      - AddRecipeFunctionIntegration
+    Properties:
+      ApiId: !Ref YumShareAPI
+      RouteKey: "POST /add-recipe"
+      Target: !Sub "integrations/${AddRecipeFunctionIntegration}"
+
+  
+  LambdaExecutionPermissionGetRecipe:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Ref GetRecipeLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${YumShareAPI}/*/*"
+
+  GetRecipeFunctionIntegration:
+    Type: "AWS::ApiGatewayV2::Integration"
+    DependsOn:
+      - GetRecipeLambda
+    Properties:
+      ApiId: !Ref YumShareAPI
+      IntegrationType: "AWS_PROXY"
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetRecipeLambda.Arn}/invocations"
+      PayloadFormatVersion: "2.0"
+
+  MyGetRecipeLambdaRoute:
+    Type: "AWS::ApiGatewayV2::Route"
+    DependsOn:
+      - GetRecipeFunctionIntegration
+    Properties:
+      ApiId: !Ref YumShareAPI
+      RouteKey: "GET /recipes"
+      Target: !Sub "integrations/${GetRecipeFunctionIntegration}"
+
+  LambdaExecutionPermissionGetSpecificRecipe:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Ref GetSpecificRecipeLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${YumShareAPI}/*/*"
+
+  GetSpecificRecipeFunctionIntegration:
+    Type: "AWS::ApiGatewayV2::Integration"
+    DependsOn:
+      - GetSpecificRecipeLambda
+    Properties:
+      ApiId: !Ref YumShareAPI
+      IntegrationType: "AWS_PROXY"
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetSpecificRecipeLambda.Arn}/invocations"
+      PayloadFormatVersion: "2.0"
+
+  MyGetSpecificRecipeLambdaRoute:
+    Type: "AWS::ApiGatewayV2::Route"
+    DependsOn:
+      - GetSpecificRecipeFunctionIntegration
+    Properties:
+      ApiId: !Ref YumShareAPI
+      RouteKey: "GET /recipe/{id}"
+      Target: !Sub "integrations/${GetSpecificRecipeFunctionIntegration}"
+
+  LambdaExecutionPermissionUserRecipe:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Ref GetUserRecipeLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${YumShareAPI}/*/*"
+
+  GetUserRecipeFunctionIntegration:
+    Type: "AWS::ApiGatewayV2::Integration"
+    DependsOn:
+      - GetUserRecipeLambda
+    Properties:
+      ApiId: !Ref YumShareAPI
+      IntegrationType: "AWS_PROXY"
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetUserRecipeLambda.Arn}/invocations"
+      PayloadFormatVersion: "2.0"
+
+  MyGetUserRecipeLambdaRoute:
+    Type: "AWS::ApiGatewayV2::Route"
+    DependsOn:
+      - GetUserRecipeFunctionIntegration
+    Properties:
+      ApiId: !Ref YumShareAPI
+      RouteKey: "GET /userrecipe/{id}"
+      Target: !Sub "integrations/${GetUserRecipeFunctionIntegration}"
+  
+  LambdaExecutionPermissionDeleteRecipe:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      FunctionName: !Ref DeleteRecipeLambda
+      Action: "lambda:InvokeFunction"
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${YumShareAPI}/*/*"
+
+  DeleteRecipeFunctionIntegration:
+    Type: "AWS::ApiGatewayV2::Integration"
+    DependsOn:
+      - GetUserRecipeLambda
+    Properties:
+      ApiId: !Ref YumShareAPI
+      IntegrationType: "AWS_PROXY"
+      IntegrationUri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DeleteRecipeLambda.Arn}/invocations"
+      PayloadFormatVersion: "2.0"
+
+  DeleteRecipeLambdaRoute:
+    Type: "AWS::ApiGatewayV2::Route"
+    DependsOn:
+      - DeleteRecipeFunctionIntegration
+    Properties:
+      ApiId: !Ref YumShareAPI
+      RouteKey: "DELETE /recipe/{id}"
+      Target: !Sub "integrations/${DeleteRecipeFunctionIntegration}"
+
+  #https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/quickref-elasticbeanstalk.html
+  #elastic beanstalk enviornemnt setup and design
+  FrontendApplication:
+    Type: "AWS::ElasticBeanstalk::Application"
+    Properties:
+      ApplicationName: "YumShareFrontend"
+      Description: "Application"
+
+  ApplicationVersion:
+    Type: "AWS::ElasticBeanstalk::ApplicationVersion"
+    Properties:
+      ApplicationName: !Ref FrontendApplication
+      Description: "Application Version"
+      SourceBundle:
+        S3Bucket: "firstlambdatry"
+        S3Key: "final.zip"
+  
+  FrontendEnvironment:
+    Type: "AWS::ElasticBeanstalk::Environment"
+    Properties:
+      ApplicationName: !Ref FrontendApplication
+      Description: "Environment"
+      EnvironmentName: "YumShareFrontend"
+      SolutionStackName: "64bit Amazon Linux 2 v5.8.4 running Node.js 18"
+      VersionLabel: !Ref ApplicationVersion
+      OperationsRole: "arn:aws:iam::710043768495:role/LabRole"
+      Tier:
+        Name: "WebServer"
+        Type: "Standard"
+      OptionSettings:
+        - Namespace: "aws:elasticbeanstalk:environment"
+          OptionName: EnvironmentType
+          Value: "SingleInstance"
+        - Namespace: "aws:elasticbeanstalk:environment"
+          OptionName: ServiceRole
+          Value: arn:aws:iam::710043768495:role/LabRole
+        - Namespace: "aws:autoscaling:launchconfiguration"
+          OptionName: "IamInstanceProfile"
+          Value: "LabInstanceProfile"         
+        - Namespace: "aws:elasticbeanstalk:application:environment"
+          OptionName: "REACT_APP_BASE_URL"
+          Value: !Sub "https://${YumShareAPI}.execute-api.${AWS::Region}.amazonaws.com"
+#output
+Outputs:
+  ApplicationURL:
+    Description: "Application URL"
+    Value: !Join ["", ["http://", !GetAtt FrontendEnvironment.EndpointURL]]
+  
